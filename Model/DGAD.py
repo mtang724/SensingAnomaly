@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd.gradcheck import zero_gradients
+from torch.nn.utils import clip_grad_norm_ as clip_grad_norm
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -33,6 +35,7 @@ class DGAD(object):
         self.train_len = args.dataset_setting[self.dataset_name][0]
         self.test_len = args.dataset_setting[self.dataset_name][1]
         self.num_sensor = args.dataset_setting[self.dataset_name][2]
+        self.num_sensor_dev = args.dataset_setting[self.dataset_name][3]
         self.new_start = args.new_start
 
         self.epoch = args.epoch
@@ -55,12 +58,13 @@ class DGAD(object):
 
         self.batch_size = args.batch_size
         self.num_clips = args.num_clips
-        self.embedding_dim = args.dataset_setting[self.dataset_name][3]
-        self.graph_ch = args.dataset_setting[self.dataset_name][4]
-        self.conv_ch = args.dataset_setting[self.dataset_name][5] if args.conv_ch == 0 else args.conv_ch
-        self.original_dim = args.dataset_setting[self.dataset_name][6]
+        self.embedding_dim = args.dataset_setting[self.dataset_name][4]
+        self.graph_ch = args.dataset_setting[self.dataset_name][5]
+        self.conv_ch = args.dataset_setting[self.dataset_name][6] if args.conv_ch == 0 else args.conv_ch
+        self.original_dim = args.dataset_setting[self.dataset_name][7]
+        self.head = args.head
 
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cpu') #'cuda:0' if torch.cuda.is_available() else
 
         # build graph
         print(" [*] Buliding model!")
@@ -125,7 +129,7 @@ class DGAD(object):
                     param.requires_grad = requires_grad
 
     def build_model(self):
-        self.G = Detector(self.graph_ch, self.conv_ch, self.num_sensor, self.embedding_dim, self.dropout,
+        self.G = Detector(self.graph_ch, self.conv_ch, self.num_sensor, self.embedding_dim, self.head, self.dropout,
                           self.original_dim)
 
         if self.print_net:
@@ -133,7 +137,7 @@ class DGAD(object):
 
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.init_lr)
 
-        self.G.to(self.device)
+        self.G = self.G.to(self.device)
 
     def train(self):
         start_iters = self.resume_iters if not self.new_start else 0
@@ -164,40 +168,57 @@ class DGAD(object):
                 node_feature = torch.zeros((self.num_clips, self.num_sensor, self.graph_ch), dtype=torch.float)
                 edge = torch.zeros((self.num_clips, self.num_sensor, self.num_sensor), dtype=torch.float)
 
+                for d in range(self.num_clips):
+                    node_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/node/node' + str(idx + d + 1) + '.npy'
+                    edge_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/graph/graph' + str(idx + d + 1) + '.npy'
+                    dict_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/dict/node_dict' + str(
+                        idx + d + 1) + '.npy' if self.dataset_name != 'DBLP5' else None
+                    node_feature[d], edge[d], _, _ = load_graph(node_path, edge_path, dict_path)
+
+                help = torch.eye(edge.shape[1], dtype=torch.float)
+
+                node_exist = torch.sum(torch.mul(help, edge), dim=-1)  # whether or not the node exists
+                edge = torch.mul(1. - help, edge)
+
                 edge = edge.to(self.device)
                 node_feature = node_feature.to(self.device)
 
+                sensor = [i for i in range(self.num_sensor)]
+                sensor = torch.tensor(sensor, dtype=torch.int64)
+                sensor = sensor.to(self.device)
+
                 loss = {}
+
+                x = next(self.G.parameters()).is_cuda
 
                 # =================================================================================== #
                 #                             2. Train the Model                                      #
                 # =================================================================================== #
-                recon, forecast, node_recon = self.G(node_feature, edge)
+                recon, forecast, node_recon = self.G(node_feature, edge, sensor)
 
-                self.recon_error = self.loss_function(recon, node_feature[-1])
-                self.forecast_error = self.loss_function(forecast, node_feature[-1])
+                self.recon_error = self.loss_function(recon, node_feature[-1], device=self.device)
+                self.forecast_error = self.loss_function(forecast, node_feature[-1], device=self.device)
 
                 self.Graph_error = (self.rx_w * self.recon_error
                                     + (1 - self.rx_w) * self.forecast_error)
-                self.Node_error = self.loss_function(node_recon, node_feature[-1])
+                self.Node_error = self.loss_function(node_recon, node_feature[-1], device=self.device)
 
                 self.Error = (self.nx_w * self.Node_error
-                              + (1 - self.rx_w) * self.Graph_error)
+                              + (1 - self.nx_w) * self.Graph_error)
 
                 # Logging.
                 loss['reconstruction_error'] = self.recon_error.item()
                 loss['Forecast_error'] = self.forecast_error.item()
-                loss['Graph_error'] = self.Node_error.item()
-                loss['Node_error'] = self.Graph_error.item()
+                loss['Graph_error'] = self.Graph_error.item()
+                loss['Node_error'] = self.Node_error.item()
                 loss['Whole_error'] = self.Error.item()
 
-                del recon
-                del forecast
-                del node_recon
+                del recon, forecast, node_recon, node_feature, edge, sensor
                 torch.cuda.empty_cache()
 
                 self.reset_grad()
                 self.Error.backward()
+                clip_grad_norm(self.G.parameters(), 1)
                 self.g_optimizer.step()
 
                 # =================================================================================== #
@@ -241,32 +262,99 @@ class DGAD(object):
         self.iteration = self.test_len - self.num_clips + 1
         self.model_save_dir = os.path.join(self.checkpoint_dir, self.model_dir)
 
+        self.Th_error = 0.3 #temporal
+
+        tp = 0.
+        tn = 0.
+        fp = 0.
+        fn = 0.
+
         with torch.no_grad():
             for idx in range(self.iteration):
                 # =================================================================================== #
                 #                             1. Preprocess input data(Unfinished)                    #
                 # =================================================================================== #
-                node_feature = torch.zeros((self.num_clips, self.num_sensor, self.graph_ch), dtype=torch.float)
-                edge = torch.zeros((self.num_clips, self.num_sensor, self.num_sensor), dtype=torch.float)
+                node_feature = torch.zeros((self.num_clips, self.num_sensor_dev, self.graph_ch), dtype=torch.float)
+                edge = torch.zeros((self.num_clips, self.num_sensor_dev, self.num_sensor_dev), dtype=torch.float)
+                abnormal = torch.zeros((self.num_clips, self.num_sensor_dev), dtype=torch.float)
+
+                for d in range(self.num_clips):
+                    node_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/node/testnode' + str(idx + d + 1) + '.npy'
+                    edge_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/graph/testgraph' + str(idx + d + 1) + '.npy'
+                    ab_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/abnormal/abnormal' + str(idx + d + 1) + '.npy'
+                    node_feature[d], edge[d], _, abnormal[d] = load_graph(node_path, edge_path,
+                                                                          abnormal_path=ab_path)
+
+                help = torch.eye(edge.shape[1], dtype=torch.float)
+
+                node_exist = torch.sum(torch.mul(help, edge), dim=-1) [-1] # whether or not the node exists
+                edge = torch.mul(1. - help, edge)
+
+                pad_dim = self.num_sensor - self.num_sensor_dev
+                node_feature = F.pad(node_feature, (0,0,0,pad_dim))
+                edge = F.pad(edge, (0, pad_dim, 0, pad_dim))
+                abnormal = F.pad(abnormal, (0, pad_dim))
 
                 edge = edge.to(self.device)
                 node_feature = node_feature.to(self.device)
+                abnormal = abnormal[-1].to(self.device)
+
+                sensor = [i for i in range(self.num_sensor)]
+                sensor = torch.tensor(sensor, dtype=torch.int64).to(self.device)
 
                 loss = {}
 
                 # =================================================================================== #
                 #                             2. Train the Model                                      #
                 # =================================================================================== #
-                recon, forecast, node_recon = self.G(node_feature, edge)
+                recon, forecast, node_recon = self.G(node_feature, edge, sensor)
 
-                recon_error = self.loss_function(recon, node_feature[-1])
-                forecast_error = self.loss_function(forecast, node_feature[-1])
+                recon_error = self.loss_function(recon, node_feature[-1], graph=False, device=self.device)
+                forecast_error = self.loss_function(forecast, node_feature[-1], graph=False, device=self.device)
 
                 patient_score = (self.rx_w * recon_error
                                     + (1 - self.rx_w) * forecast_error)
-                sensor_score = self.loss_function(node_recon, node_feature[-1])
+                sensor_score = self.loss_function(node_recon, node_feature[-1], graph=False, device=self.device)
+                error = self.nx_w * patient_score + (1 - self.nx_w) * sensor_score
+
+                record1 = (error > self.Th_error).float()  # == abnormal[idx:idx + self.num_clips]
+                # record2 = (patient_score > self.Th_error[1]).float() == abnormal[idx:idx + self.num_clips]
+
+                for n in range(record1.shape[0]):
+                    if record1[n] == abnormal[n]:
+                        if record1[n] == 0:
+                            tp += 1.
+                        else:
+                            tn += 1.
+                    else:
+                        if record1[n] == 0:
+                            fp += 1.
+                        else:
+                            fn += 1.
+
+                anomaly_cpu = error.detach().cpu().numpy()
+                anomaly_max = np.max(anomaly_cpu)
+                max_indicate = np.where(anomaly_cpu == anomaly_max)
+                print(max_indicate)
+                if node_exist[max_indicate[0]]:
+                    print('idx={}'.format(idx))
+                    print(anomaly_max)
+                    print(max_indicate)
+                    print('\n')
+                else:
+                    print('Not exists')
 
                 self.reset_grad()
                 del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score
                 del node_feature, edge
                 torch.cuda.empty_cache()
+
+            acc = (tp + tn) / (tp + tn + fp + fn)
+            recall = tp / (tp + fn)
+            prec = tp / (tp + fp)
+            f1 = 2 * (recall * prec) / (recall + prec)
+            print('\n')
+            print(acc)
+            print(recall)
+            print(prec)
+            print(f1)

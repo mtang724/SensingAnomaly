@@ -14,27 +14,26 @@ from utils import *
 # Model (CNN Version)
 ##################################################################################
 class GraphDetector(nn.Module):
-    def __init__(self, in_channels, conv_ch, dropout, original_dim):
+    def __init__(self, in_channels, conv_ch, dropout, original_dim, num_head):
         super(GraphDetector, self).__init__()
         self.dropout = dropout
         self.conv_ch = conv_ch
 
         # Encoder
-        self.graph_conv1 = GATConv(in_channels, conv_ch)
-        self.conv1 = nn.Conv1d(conv_ch, conv_ch, kernel_size=3)
-        self.graph_conv2 = GATConv(conv_ch, conv_ch // 2)
-        self.conv2 = nn.Conv1d(conv_ch // 2, conv_ch // 2, kernel_size=3)
+        self.graph_conv1 = GATConv(in_channels, conv_ch, num_head, concat=False)
+        self.conv1 = nn.Conv1d(conv_ch, conv_ch, kernel_size=2)
+        self.graph_conv2 = GATConv(conv_ch, conv_ch // 2, num_head, concat=False)
+        self.conv2 = nn.Conv1d(conv_ch // 2, conv_ch // 2, kernel_size=2)
 
         # Reconstruction
-        self.reconstruct1 = GATConv(conv_ch // 2, conv_ch)
+        self.reconstruct1 = GATConv(conv_ch // 2, conv_ch, num_head, concat=False)
         self.reconstruct2 = nn.Linear(conv_ch, in_channels)
         self.reconstruct3 = nn.Linear(in_channels, original_dim)
 
         # Forecasting
-        self.forecast1 = GATConv(conv_ch // 2, conv_ch)
+        self.forecast1 = GATConv(conv_ch // 2, conv_ch, num_head, concat=False)
         self.forecast2 = nn.Linear(conv_ch, in_channels)
         self.forecast3 = nn.Linear(in_channels, original_dim)
-
 
     def reset_parameters(self):
         for (name, module) in self._modules.items():
@@ -50,20 +49,22 @@ class GraphDetector(nn.Module):
         for i in range(x.shape[0]):
             edge_index = torch.nonzero(edge[i]).T
             out[i] = self.graph_conv1(x[i], edge_index)
-        out = F.elu(self.conv1(out.permute([1,2,0]))) # N x C x T
-        out = F.dropout(out,self.drop).permute([2,0,1])
 
-        out = torch.zeros((x.shape[0], x.shape[1], self.conv_ch//2), dtype=torch.float).to(x.device)
+        out = F.elu(self.conv1(out.permute([1,2,0]))) # N x C x T
+        out = F.dropout(out,self.dropout).permute([2,0,1])
+
+        out2 = torch.zeros((x.shape[0], x.shape[1], self.conv_ch//2), dtype=torch.float).to(x.device)
         for i in range(out.shape[0]):
             edge_index = torch.nonzero(edge[i]).T
             out2[i] = self.graph_conv2(out[i], edge_index)
         E = F.dropout(F.elu(self.conv2(out2.permute([1,2,0]))), self.dropout)  # N x C x T
         E = E.permute([2,0,1])  # T x N x C
 
+
         edge_index = torch.nonzero(edge[-1]).T
         recon = F.elu(self.reconstruct1(E[-1], edge_index))
         recon = F.dropout(recon, self.dropout)
-        recon = self.reconstruct2(recon).permute([0,2,1]) # B x N x C'
+        recon = F.elu(self.reconstruct2(recon))
         recon = self.reconstruct3(recon)
 
         edge_index = torch.nonzero(edge[-2]).T
@@ -76,7 +77,7 @@ class GraphDetector(nn.Module):
 
 
 class NodeDetector(nn.Module):
-    def __init__(self, in_channels, embedding_channels, conv_ch, dropout, original_dim):
+    def __init__(self, in_channels, embedding_channels, conv_ch, dropout, original_dim, num_head):
         super(NodeDetector, self).__init__()
         self.dropout = dropout
         self.conv_ch = conv_ch
@@ -95,8 +96,8 @@ class NodeDetector(nn.Module):
         self.normal_node_projection = nn.Parameter(torch.Tensor(conv_ch//2, conv_ch//2).float())
 
         # Graph aggregation
-        self.graph_conv1 = GATConv(conv_ch // 2, conv_ch // 2)
-        self.graph_conv2 = GATConv(conv_ch // 2, conv_ch // 2)
+        self.graph_conv1 = GATConv(conv_ch // 2, conv_ch // 2, num_head, concat=False)
+        self.graph_conv2 = GATConv(conv_ch // 2, conv_ch // 2, num_head, concat=False)
 
         # Reconstruction
         self.reconstruct = nn.Linear(conv_ch // 2, original_dim)
@@ -120,10 +121,9 @@ class NodeDetector(nn.Module):
 
         # Project node feature and node embedding to same space
         x = torch.matmul(x, self.node_projection)  # N x conv_ch
-        E = torch.matmul(E, self.embedding_projection_projection)  # N x conv_ch
+        E = torch.matmul(E, self.embedding_projection)  # N x conv_ch
 
-        recon = torch.ones((x.shape[0], x.shape[1], self.original_dim), dtype=torch.float).to(
-            x.device)  # OR change to use a larger tensor to avoid a lot of for loop?
+        recon = torch.ones((x.shape[0], self.original_dim), dtype=torch.float).to(x.device)  # OR change to use a larger tensor to avoid a lot of for loop?
         for i in range(x.shape[1]):
             # Mask each node
             masked = torch.ones_like(x)
@@ -131,9 +131,9 @@ class NodeDetector(nn.Module):
             masked *= x
 
             # Aggregation of each node feature and corresponding embeding.
-            masked = torch.stack([masked,E])  # N x C x 2
+            masked = torch.stack([masked,E]).permute([1,2,0])  # N x C x 2
             masked = self.node_aggr1(masked).squeeze() # N x C
-            masked = F.dropout(F.elu(masked))
+            masked = F.dropout(torch.tanh(masked), self.dropout)
             masked = self.node_aggr2(masked)  # N x C//2
 
             # Project mask node and other nodes to same place
@@ -142,9 +142,9 @@ class NodeDetector(nn.Module):
 
             # Graph aggregation
             projected_masked = self.graph_conv1(projected_masked, edge_index)
-            projected_masked = F.dropout(F.elu(projected_masked))
+            projected_masked = F.dropout(F.elu(projected_masked), self.dropout)
             projected_masked = self.graph_conv2(projected_masked, edge_index)
-            projected_masked = F.dropout(F.elu(projected_masked)) # N x C//2
+            projected_masked = F.dropout(F.elu(projected_masked), self.dropout) # N x C//2
 
             # Reconstruction
             recon[i] = self.reconstruct(projected_masked[i].view([1,-1])).squeeze()
@@ -153,16 +153,16 @@ class NodeDetector(nn.Module):
 
 
 class Detector(nn.Module):
-    def __init__(self, in_channels, conv_ch, num_sensor, embedding_dim, dropout=0.0, original_dim=1):
+    def __init__(self, in_channels, conv_ch, num_sensor, embedding_dim, num_head, dropout=0.0, original_dim=1):
         super(Detector, self).__init__()
 
         self.sensor_embedding = nn.Embedding(num_sensor, embedding_dim)
 
-        self.projection = nn.Parameter(torch.Tensor(num_sensor, in_channels, in_channels).float())
+        self.projection = nn.Parameter(torch.Tensor(1, num_sensor, in_channels, in_channels).float())
 
-        self.graph_detector = GraphDetector(in_channels+embedding_dim, conv_ch, dropout, original_dim)
+        self.graph_detector = GraphDetector(in_channels+embedding_dim, conv_ch, dropout, original_dim, num_head)
 
-        self.node_detector = NodeDetector(in_channels+embedding_dim, conv_ch//2, conv_ch//2, dropout, original_dim)
+        self.node_detector = NodeDetector(in_channels+embedding_dim, conv_ch//2, conv_ch//2, dropout, original_dim, num_head)
 
     def reset_parameters(self):
         torch.nn.init.xavier_uniform_(self.projection, gain=math.sqrt(2.0))
@@ -182,8 +182,8 @@ class Detector(nn.Module):
         sen_emb = sen_emb.expand([x.shape[0], -1, -1])
 
         # Projection Graph
-        x = torch.matmul(x, self.projection)
-        x = torch.cat([x,sen_emb],dim=-1)
+        x = torch.matmul(x.view(x.shape[0], x.shape[1], 1, -1), self.projection.expand([x.shape[0], -1, -1, -1]))
+        x = torch.cat([x.squeeze(),sen_emb],dim=-1)
 
         recon, forecast, E_t_1 = self.graph_detector(x, edge)
         node_recon = self.node_detector(x[-1], edge[-1], E_t_1)
@@ -192,11 +192,14 @@ class Detector(nn.Module):
 
 
 if __name__ == '__main__':
-    gd = GraphDetector(10, 8, 0.0, 5)
+    gd = Detector(10, 8, 15, 5, 2, 0.0, 5)
     x = torch.rand([3,15,10])
     e = torch.rand(3,15,15)>0.5
+    i = [i for i in range(15)]
+    i = torch.tensor(i, dtype=torch.int32)
+    E = torch.rand([15,4])
 
-    y1, y2, y3 = gd(x,e)
+    y1, y2, y3 = gd(x, e, i)
     print(y1.shape)
     print(y2.shape)
     print(y3.shape)

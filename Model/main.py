@@ -1,6 +1,4 @@
 from DGAD import DGAD
-from Lis_GAD import GAD
-from TEST_GAD import TEST
 import argparse
 from utils import *
 import os
@@ -8,19 +6,20 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-Data_dict = {'sensor': [150,25,15,16,10, 8, 10]} # TODO: Modify
+Data_dict = {'sensor': [150,25,15,16,10, 8, 10],
+             'reddit_data': [150,50,3199, 2411, 16, 300,64, 300]} # TODO: Modify
 
 """parsing and configuration"""
 def parse_args():
     desc = "Tensorflow implementation of 3dgraphconv"
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument('--phase', type=str, default='test', help='train or test')
-    parser.add_argument('--dataset', type=str, default='DBLP5', help='dataset_name: reddit_data/DBLP5')
+    parser.add_argument('--dataset', type=str, default='reddit_data', help='dataset_name: reddit_data/DBLP5')
     parser.add_argument('--model', type=str, default='CNN', help='CNN/RNN')
     parser.add_argument('--dataset_setting', type=dict, default=Data_dict,
-                        help='train_len, test_len, number of node, sensor embedding dim, input channel, conv_channel, Original dim')
+                        help='train_len, test_len, number of trn node, number of dev node, sensor embedding dim, input channel, conv_channel, Original dim')
 
-    parser.add_argument('--resume_iters', type=int, default=13, help='resume training from this step')
+    parser.add_argument('--resume_iters', type=int, default=295, help='resume training from this step')
     parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 
     parser.add_argument('--decay_flag', type=bool, default=False, help='The decay_flag')
@@ -28,9 +27,9 @@ def parse_args():
 
     parser.add_argument('--epoch', type=int, default=3, help='The number of epochs to run')
     #parser.add_argument('--iteration', type=int, default=2000, help='The number of training iterations')##
-    parser.add_argument('--new_start', type=bool, default=False, help='new_start')
+    parser.add_argument('--new_start', type=bool, default=True, help='new_start')
 
-    parser.add_argument('--lr', type=float, default=0.005, help='The learning rate')
+    parser.add_argument('--lr', type=float, default=0.001, help='The learning rate')
 
     parser.add_argument('--rx_w', type=float, default=0.5, help='weight of Graph reconstruction error')
     parser.add_argument('--nx_w', type=float, default=0.5, help='weight of masked nodes reconstruction error')
@@ -44,6 +43,7 @@ def parse_args():
 
     parser.add_argument('--num_clips', type=int, default=3, help='The size of clip')
     parser.add_argument('--conv_ch', type=int, default=0, help='The base channel number per layer')
+    parser.add_argument('--head', type=int, default=1, help='Number of head for attention')
 
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoint',
                         help='Directory name to save the checkpoints')
@@ -87,13 +87,8 @@ def main(**setting):
       exit()
 
     #cudnn.benchmark = True
+    gae = DGAD(args)
 
-    if args.model == 'DGAD':
-        gae = DGAD(args)
-    elif args.model == 'GAD':
-        gae = GAD(args)
-    else:
-        gae = TEST(args)
     print('Model: {}'.format(args.model))
 
     if args.phase == 'train':
@@ -106,10 +101,6 @@ def main(**setting):
 
     if args.phase == 'test':
         gae.test()
-        print(" [*] Test finished!")
-
-    if args.phase == 'test2':
-        gae.test2()
         print(" [*] Test finished!")
 
 

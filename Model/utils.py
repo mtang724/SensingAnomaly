@@ -5,7 +5,7 @@ import os, random
 import numpy as np
 import torch
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+DEVICE = torch.device('cpu')#'cuda' if torch.cuda.is_available() else
 
 def show_all_variables():
     model_vars = tf.trainable_variables()
@@ -22,29 +22,29 @@ def check_folder(log_dir):
 ##################################################################################
 
 
-def l1_loss(x, y, graph=True):
+def l1_loss(x, y, graph=True, device=DEVICE):
     if graph:
         loss = torch.mean(torch.abs(x - y))
     else:
         loss = torch.mean(torch.abs(x - y), dim=-1)
 
-    return loss.to(DEVICE)
+    return loss.to(device)
 
 
-def l2_loss(x, y, graph=True, c=0):
+def l2_loss(x, y, graph=True, c=0, device=DEVICE):
     if graph:
         loss = torch.clamp(torch.mean(torch.pow(x-y, 2)) - c, min=0.)
     else:
         loss = torch.clamp(torch.mean(torch.pow(x-y, 2), dim=-1) - c, min=0.)
 
-    return loss.to(DEVICE)
+    return loss.to(device)
 
 
-def cross_entropy(output, lable, graph=True):
+def cross_entropy(output, lable, graph=True, device=DEVICE):
     if graph:
         loss = torch.mean(-1 * lable * torch.log(output + 1e-15) - (1-lable) * torch.log(1-output + 1e-15))
     else:
         loss = torch.mean(-1 * lable * torch.log(output + 1e-15) - (1-lable) * torch.log(1-output + 1e-15), dim=-1)
 
-    return  loss.to(DEVICE)
+    return  loss.to(device)
 
