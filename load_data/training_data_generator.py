@@ -6,7 +6,7 @@ import utils
 import numpy as np
 import pickle
 
-device_ids = ["45eb179e1d93ae0d", "576ded86316a78e6", "8043b45831a5ad45", "67c0d0b74e62bf81", "52a677f9605d9ac1", "fc41eab92fdbe033"]
+device_ids = ["45eb179e1d93ae0d", "576ded86316a78e6"]
 email_path = "D:\Clean\Fluisense Emails.xlsx"
 
 
@@ -29,11 +29,13 @@ y_list_w = []
 y_list_h = []
 for device_id in device_ids:
     print(device_id)
-    date_ranges, yws, yhs = utils.generate_date_and_y(email_path, device_id)
-    for date_range, yw, yh in zip(date_ranges, yws, yhs):
+    date_ranges_w, date_ranges_h,  yws, yhs = utils.generate_date_and_y(email_path, device_id)
+    for date_range, yw in zip(date_ranges_w, yws):
         df_list = []
         for df in ori_df_list:
+            print(date_range[0], date_range[1])
             filter_df = utils.filter_date(df, device_id, date_range[0], date_range[1]).drop(columns=['T', 'ParticipantId', 'FileCreationTime', 'DeviceId'])
+            print(filter_df.head())
             df_list.append(filter_df)
 
         X_train_list = []
@@ -65,7 +67,7 @@ for device_id in device_ids:
             print(X_df.values)
             X_df_list.append(X_df)
             y_list_w.append(yw)
-            y_list_h.append(yh)
+            # y_list_h.append(yh)
 
     df_column_list = []
     for df in X_df_list:
@@ -78,9 +80,12 @@ for device_id in device_ids:
             prev_list = set(prev_list).intersection(col)
 
     X_list = []
-    for X_train in X_df_list:
-        new_train = X_train[prev_list]
-        X_list.append(new_train.values)
+    try:
+        for X_train in X_df_list:
+            new_train = X_train[prev_list]
+            X_list.append(new_train.values)
+    except:
+        continue
 
 # data = np.column_stack([xarray, yarray])
 datafile_path_x = "datafileX.txt"
@@ -89,16 +94,16 @@ datafile_path_y_h = "datafileY_h.txt"
 
 xarray = np.array(X_list)
 yarray = np.array(y_list_w)
-yarray_h = np.array(y_list_h)
+# yarray_h = np.array(y_list_h)
 output = open(datafile_path_x, 'wb')
 pickle.dump(xarray, output)
 output.close()
 output = open(datafile_path_y_w, 'wb')
 pickle.dump(yarray, output)
 output.close()
-output = open(datafile_path_y_h, 'wb')
-pickle.dump(yarray_h, output)
-output.close()
+# output = open(datafile_path_y_h, 'wb')
+# pickle.dump(yarray_h, output)
+# output.close()
 
 
 

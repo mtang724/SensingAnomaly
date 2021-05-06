@@ -20,7 +20,7 @@ def filter_date(df, deviceid, start_date, end_date):
     filtered_df = df.loc[df['DeviceId'] == deviceid]
     filtered_df['T'] = pd.to_datetime(filtered_df['T']).apply(lambda x: x.replace(tzinfo=None))
     filtered_df = filtered_df[(filtered_df['T'] > start_date) & (filtered_df['T'] < end_date)]
-    # filtered_df = filtered_df.set_index(pd.DatetimeIndex(pd.to_datetime(filtered_df['T'])))
+    filtered_df = filtered_df.set_index(pd.DatetimeIndex(pd.to_datetime(filtered_df['T'])))
     return filtered_df
 
 def generate_date_and_y(email_path, device_id, labels = ["Weight (lb)", "Hydration (lb)"]):
@@ -41,7 +41,8 @@ def generate_date_and_y(email_path, device_id, labels = ["Weight (lb)", "Hydrati
     path = path + "weight.csv"
     weight_df = read_data(path)
     weight_df['Date'] = pd.to_datetime(weight_df['Date']).apply(lambda x: x.replace(tzinfo=None))
-    date_ranges = []
+    date_ranges_w = []
+    date_ranges_h = []
     yw = []
     yh= []
     for index, row in weight_df.iterrows():
@@ -49,11 +50,11 @@ def generate_date_and_y(email_path, device_id, labels = ["Weight (lb)", "Hydrati
             from_date = row['Date'] - datetime.timedelta(days=1)
             to_date = row['Date']
             if not pd.isna(row[labels[0]]):
-                date_ranges.append((from_date, to_date))
+                date_ranges_w.append((from_date, to_date))
                 yw.append(row[labels[0]])
             if not pd.isna(row[labels[1]]):
-                date_ranges.append((from_date, to_date))
+                date_ranges_h.append((from_date, to_date))
                 yh.append(row[labels[1]])
-    return date_ranges, yw, yh
+    return date_ranges_w, date_ranges_h, yw, yh
 
 

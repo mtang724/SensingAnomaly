@@ -6,7 +6,7 @@ from sklearn.tree import DecisionTreeRegressor
 from sklearn.svm import SVR
 from sklearn.model_selection import train_test_split, cross_val_score
 # Sklearn regression model evaluation function
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, explained_variance_score, mean_squared_error
 
 from sklearn.neural_network import MLPRegressor
 import numpy as np
@@ -38,3 +38,5 @@ for model in models:
 for model in models:
     predictions = model.predict(X_test)
     print(type(model).__name__, mean_absolute_error(y_test, predictions))
+    print(type(model).__name__, explained_variance_score(y_test, predictions))
+    print(type(model).__name__, mean_squared_error(y_test, predictions)**(1/2))
