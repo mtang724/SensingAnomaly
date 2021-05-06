@@ -262,12 +262,8 @@ class DGAD(object):
         self.iteration = self.test_len - self.num_clips + 1
         self.model_save_dir = os.path.join(self.checkpoint_dir, self.model_dir)
 
-        self.Th_error = 0.3 #temporal
-
-        tp = 0.
-        tn = 0.
-        fp = 0.
-        fn = 0.
+        label = []
+        predict = []
 
         with torch.no_grad():
             for idx in range(self.iteration):
@@ -297,7 +293,8 @@ class DGAD(object):
 
                 edge = edge.to(self.device)
                 node_feature = node_feature.to(self.device)
-                abnormal = abnormal[-1].to(self.device)
+                # abnormal = abnormal[-1].to(self.device)
+                label.append(abnormal[-1])
 
                 sensor = [i for i in range(self.num_sensor)]
                 sensor = torch.tensor(sensor, dtype=torch.int64).to(self.device)
@@ -317,44 +314,103 @@ class DGAD(object):
                 sensor_score = self.loss_function(node_recon, node_feature[-1], graph=False, device=self.device)
                 error = self.nx_w * patient_score + (1 - self.nx_w) * sensor_score
 
-                record1 = (error > self.Th_error).float()  # == abnormal[idx:idx + self.num_clips]
-                # record2 = (patient_score > self.Th_error[1]).float() == abnormal[idx:idx + self.num_clips]
+                predict.append(error.cpu())
 
-                for n in range(record1.shape[0]):
-                    if record1[n] == abnormal[n]:
-                        if record1[n] == 0:
-                            tp += 1.
-                        else:
-                            tn += 1.
-                    else:
-                        if record1[n] == 0:
-                            fp += 1.
-                        else:
-                            fn += 1.
-
-                anomaly_cpu = error.detach().cpu().numpy()
-                anomaly_max = np.max(anomaly_cpu)
-                max_indicate = np.where(anomaly_cpu == anomaly_max)
-                print(max_indicate)
-                if node_exist[max_indicate[0]]:
-                    print('idx={}'.format(idx))
-                    print(anomaly_max)
-                    print(max_indicate)
-                    print('\n')
-                else:
-                    print('Not exists')
-
-                self.reset_grad()
                 del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score
                 del node_feature, edge
                 torch.cuda.empty_cache()
 
+        print("Finish NN Part!")
+
+        thers_l = torch.arange(0,2.51,0.01)
+        label = torch.cat(label)
+        label = torch.flatten(label)
+        predict = torch.flatten(torch.cat(predict))
+        recall_list = []
+        prec_list = []
+        f1_list = []
+        acc_list = []
+        best = [0,0,0,0,0]
+        for thers in thers_l:
+            # tp, tn, fp, fn = 0., 0., 0., 0.
+
+            record1 = (predict >= thers).float()
+
+            tp = (label * record1).sum().to(torch.float32)
+            tn = ((1 - label) * (1 - record1)).sum().to(torch.float32)
+            fp = ((1 - label) * record1).sum().to(torch.float32)
+            fn = (label * (1 - record1)).sum().to(torch.float32)
+
+            # for n in range(record1.shape[0]):
+            #     if record1[n] == label[n]:
+            #         if record1[n] == 0:
+            #             tp += 1.
+            #         else:
+            #             tn += 1.
+            #     else:
+            #         if record1[n] == 0:
+            #             fp += 1.
+            #         else:
+            #             fn += 1.
+
+            # anomaly_cpu = error.detach().cpu().numpy()
+            # anomaly_max = np.max(anomaly_cpu)
+            # max_indicate = np.where(anomaly_cpu == anomaly_max)
+            # print(max_indicate)
+            # if node_exist[max_indicate[0]]:
+            #     print('idx={}'.format(idx))
+            #     print(anomaly_max)
+            #     print(max_indicate)
+            #     print('\n')
+            # else:
+            #     print('Not exists')
+
+            epsilon = 1e-7
+
             acc = (tp + tn) / (tp + tn + fp + fn)
-            recall = tp / (tp + fn)
-            prec = tp / (tp + fp)
+            recall = tp / (tp + fn + epsilon)
+            prec = tp / (tp + fp + epsilon)
             f1 = 2 * (recall * prec) / (recall + prec)
-            print('\n')
-            print(acc)
-            print(recall)
-            print(prec)
-            print(f1)
+
+            acc_list.append(acc)
+            recall_list.append(recall)
+            prec_list.append(prec)
+            f1_list.append(f1)
+
+            if f1 > best[1]:
+                best = [thers,f1,acc,recall,prec]
+            elif f1==best[1] and acc > best[2]:
+                best = [thers, f1, acc, recall, prec]
+
+        print('Best result for now: thers={}, f1={}, acc={}, recall={}, prec={}'.format(best[0], best[1], best[2], best[3], best[4]))
+
+        plt.figure(1)
+        plt.plot(recall_list,prec_list)
+        plt.title('roc')
+        plt.xlabel('Recall')
+        plt.ylabel('Prec')
+
+        plt.figure(2)
+        plt.plot(acc_list, thers_l)
+        plt.xlabel('threshold')
+        plt.ylabel('accuracy')
+
+        plt.figure(3)
+        plt.plot(f1_list, thers_l)
+        plt.xlabel('threshold')
+        plt.ylabel('f1')
+
+        plt.show()
+
+        with open('result.txt', 'w') as f:
+            for i in recall_list:
+                f.write("%s" % i)
+            f.write('\n')
+            for i in prec_list:
+                f.write("%s" % i)
+            f.write('\n')
+            for i in acc_list:
+                f.write("%s" % i)
+            f.write('\n')
+            for i in f1_list:
+                f.write("%s" % i)
