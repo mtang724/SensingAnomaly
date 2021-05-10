@@ -169,9 +169,9 @@ class DGAD(object):
                 edge = torch.zeros((self.num_clips, self.num_sensor, self.num_sensor), dtype=torch.float)
 
                 for d in range(self.num_clips):
-                    node_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/node/node' + str(idx + d + 1) + '.npy'
-                    edge_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/graph/graph' + str(idx + d + 1) + '.npy'
-                    dict_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/dict/node_dict' + str(
+                    node_path = self.dataset_name + '/node/node' + str(idx + d + 1) + '.npy'
+                    edge_path = self.dataset_name + '/graph/graph' + str(idx + d + 1) + '.npy'
+                    dict_path = self.dataset_name + '/dict/node_dict' + str(
                         idx + d + 1) + '.npy' if self.dataset_name != 'DBLP5' else None
                     node_feature[d], edge[d], _, _ = load_graph(node_path, edge_path, dict_path)
 
@@ -275,9 +275,9 @@ class DGAD(object):
                 abnormal = torch.zeros((self.num_clips, self.num_sensor_dev), dtype=torch.float)
 
                 for d in range(self.num_clips):
-                    node_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/node/testnode' + str(idx + d + 1) + '.npy'
-                    edge_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/graph/testgraph' + str(idx + d + 1) + '.npy'
-                    ab_path = 'D:/UVA_RESEARCH/GRAPH/DGAD/' + self.dataset_name + '/abnormal/abnormal' + str(idx + d + 1) + '.npy'
+                    node_path = self.dataset_name + '/node/testnode' + str(idx + d + 1) + '.npy'
+                    edge_path = self.dataset_name + '/graph/testgraph' + str(idx + d + 1) + '.npy'
+                    ab_path = self.dataset_name + '/abnormal/abnormal' + str(idx + d + 1) + '.npy'
                     node_feature[d], edge[d], _, abnormal[d] = load_graph(node_path, edge_path,
                                                                           abnormal_path=ab_path)
 
@@ -384,33 +384,33 @@ class DGAD(object):
 
         print('Best result for now: thers={}, f1={}, acc={}, recall={}, prec={}'.format(best[0], best[1], best[2], best[3], best[4]))
 
-        plt.figure(1)
-        plt.plot(recall_list,prec_list)
-        plt.title('roc')
-        plt.xlabel('Recall')
-        plt.ylabel('Prec')
-
-        plt.figure(2)
-        plt.plot(acc_list, thers_l)
-        plt.xlabel('threshold')
-        plt.ylabel('accuracy')
-
-        plt.figure(3)
-        plt.plot(f1_list, thers_l)
-        plt.xlabel('threshold')
-        plt.ylabel('f1')
-
-        plt.show()
-
-        with open('result.txt', 'w') as f:
-            for i in recall_list:
-                f.write("%s" % i)
-            f.write('\n')
-            for i in prec_list:
-                f.write("%s" % i)
-            f.write('\n')
-            for i in acc_list:
-                f.write("%s" % i)
-            f.write('\n')
-            for i in f1_list:
-                f.write("%s" % i)
+        # plt.figure(1)
+        # plt.plot(recall_list,prec_list)
+        # plt.title('roc')
+        # plt.xlabel('Recall')
+        # plt.ylabel('Prec')
+        #
+        # plt.figure(2)
+        # plt.plot(acc_list, thers_l)
+        # plt.xlabel('threshold')
+        # plt.ylabel('accuracy')
+        #
+        # plt.figure(3)
+        # plt.plot(f1_list, thers_l)
+        # plt.xlabel('threshold')
+        # plt.ylabel('f1')
+        #
+        # plt.show()
+        #
+        # with open('result.txt', 'w') as f:
+        #     for i in recall_list:
+        #         f.write("%s" % i)
+        #     f.write('\n')
+        #     for i in prec_list:
+        #         f.write("%s" % i)
+        #     f.write('\n')
+        #     for i in acc_list:
+        #         f.write("%s" % i)
+        #     f.write('\n')
+        #     for i in f1_list:
+        #         f.write("%s" % i)

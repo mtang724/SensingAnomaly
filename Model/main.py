@@ -1,4 +1,6 @@
 from DGAD import DGAD
+from LOF import LOF
+from GAE import GAD
 import argparse
 from utils import *
 import os
@@ -11,15 +13,15 @@ Data_dict = {'sensor': [150,25,15,16,10, 8, 10],
 
 """parsing and configuration"""
 def parse_args():
-    desc = "Tensorflow implementation of 3dgraphconv"
+    desc = "Pytorch implementation of 3dgraphconv"
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument('--phase', type=str, default='test', help='train or test')
-    parser.add_argument('--dataset', type=str, default='reddit_data', help='dataset_name: reddit_data/DBLP5')
-    parser.add_argument('--model', type=str, default='CNN', help='CNN/RNN')
+    parser.add_argument('--phase', type=str, default='train', help='train or test')
+    parser.add_argument('--dataset', type=str, default='reddit_data', help='dataset_name: reddit_data')
+    parser.add_argument('--model', type=str, default='CNN', help='CNN/LOF/GAE')
     parser.add_argument('--dataset_setting', type=dict, default=Data_dict,
                         help='train_len, test_len, number of trn node, number of dev node, sensor embedding dim, input channel, conv_channel, Original dim')
 
-    parser.add_argument('--resume_iters', type=int, default=295, help='resume training from this step')
+    parser.add_argument('--resume_iters', type=int, default=0, help='resume training from this step')
     parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 
     parser.add_argument('--decay_flag', type=bool, default=False, help='The decay_flag')
@@ -51,6 +53,9 @@ def parse_args():
                         help='Directory name to save the generated images')
     parser.add_argument('--log_dir', type=str, default='logs',
                         help='Directory name to save training logs')
+    parser.add_argument('--log_dir', type=str, default='logs',
+                        help='Directory name to save training logs')
+
 
 
     return check_args(parser.parse_args())
@@ -87,9 +92,14 @@ def main(**setting):
       exit()
 
     #cudnn.benchmark = True
-    gae = DGAD(args)
-
-    print('Model: {}'.format(args.model))
+    if args.model == 'CNN':
+        gae = DGAD(args)
+        print('Model: {}'.format(args.model))
+    elif args.model == 'LOF':
+        gae = LOF(args)
+    elif args.model == 'GAE':
+        gae = GAD(args)
+        print('Model: {}'.format(args.model))
 
     if args.phase == 'train':
         # launch the graph in a session
