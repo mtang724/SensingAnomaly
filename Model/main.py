@@ -102,10 +102,11 @@ def main(**setting):
         print('Model: {}'.format(args.model))
 
     if args.phase == 'train':
-        # launch the graph in a session
-        gae.train()
-        print(" [*] Training finished!")
-        print("\n\n\n")
+        if args.model != 'LOF':
+            # launch the graph in a session
+            gae.train()
+            print(" [*] Training finished!")
+            print("\n\n\n")
         gae.test()
         print(" [*] Test finished!")
 
