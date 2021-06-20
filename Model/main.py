@@ -8,18 +8,21 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-Data_dict = {'sensor': [150,25,15,16,10, 8, 10],
-             'reddit_data': [150,50,3199, 2411, 16, 300,64, 300]} # TODO: Modify
+Data_dict = {'sensor': [],
+             'reddit_data': [150, 50, 3199, 2411, 16, 300, 64, 300],
+             'har': [7352, 2947, 18, 18, 16, 79, 64, 79],
+             'har_clean': [6366, 2947, 18, 18, 16, 79, 64, 79]}  # TODO: Modify
 
 """parsing and configuration"""
 def parse_args():
     desc = "Pytorch implementation of 3dgraphconv"
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument('--phase', type=str, default='train', help='train or test')
-    parser.add_argument('--dataset', type=str, default='reddit_data', help='dataset_name: reddit_data')
+    parser.add_argument('--dataset', type=str, default='har_clean', help='dataset_name: reddit_data/har/har_clean')
     parser.add_argument('--model', type=str, default='CNN', help='CNN/LOF/GAE')
     parser.add_argument('--dataset_setting', type=dict, default=Data_dict,
-                        help='train_len, test_len, number of trn node, number of dev node, sensor embedding dim, input channel, conv_channel, Original dim')
+                        help='0 train_len, 1 test_len, 2 number of trn node, 3 number of dev node,' +
+                             '4 sensor embedding dim, 5 input channel, 6 conv_channel, 7 Original dim')
 
     parser.add_argument('--resume_iters', type=int, default=0, help='resume training from this step')
     parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
@@ -27,8 +30,8 @@ def parse_args():
     parser.add_argument('--decay_flag', type=bool, default=False, help='The decay_flag')
     parser.add_argument('--decay_epoch', type=int, default=6, help='decay epoch')
 
-    parser.add_argument('--epoch', type=int, default=3, help='The number of epochs to run')
-    #parser.add_argument('--iteration', type=int, default=2000, help='The number of training iterations')##
+    parser.add_argument('--epoch', type=int, default=5, help='The number of epochs to run')
+    # parser.add_argument('--iteration', type=int, default=2000, help='The number of training iterations')##
     parser.add_argument('--new_start', type=bool, default=True, help='new_start')
 
     parser.add_argument('--lr', type=float, default=0.001, help='The learning rate')
@@ -53,10 +56,6 @@ def parse_args():
                         help='Directory name to save the generated images')
     parser.add_argument('--log_dir', type=str, default='logs',
                         help='Directory name to save training logs')
-    parser.add_argument('--log_dir', type=str, default='logs',
-                        help='Directory name to save training logs')
-
-
 
     return check_args(parser.parse_args())
 

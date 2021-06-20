@@ -66,6 +66,31 @@ class DGAD(object):
 
         self.device = torch.device('cpu') #'cuda:0' if torch.cuda.is_available() else
 
+        if 'har' in self.dataset_name:
+            if 'clean' in self.dataset_name:
+                train_list_path = self.dataset_name + '/train_clean_list.npy'
+                train_label_path = self.dataset_name + '/train_clean_label.npy'
+            else:
+                train_list_path = self.dataset_name + '/train_list.npy'
+                train_label_path = self.dataset_name + '/train_label.npy'
+            test_list_path = self.dataset_name + '/test_list.npy'
+            test_label_path = self.dataset_name + '/test_label.npy'
+            subject_train_path = self.dataset_name + '/subject_train.npy'
+            subject_test_path = self.dataset_name + '/subject_test.npy'
+            abnormal_list_path = self.dataset_name + '/ab.npy'
+
+            dataset = load_har(train_list_path, train_label_path, test_list_path, test_label_path, subject_train_path, subject_test_path, abnormal_list_path)
+
+            self.train_list = dataset[0]
+            self.train_label = dataset[1]
+            self.test_list = dataset[2]
+            self.test_label = dataset[3]
+            self.subject_train = dataset[4]
+            self.subject_test  = dataset[5]
+            self.abnormal_list = dataset[6]
+
+            del dataset
+
         # build graph
         print(" [*] Buliding model!")
         self.build_model()
@@ -139,6 +164,89 @@ class DGAD(object):
 
         self.G = self.G.to(self.device)
 
+    def load_data_train(self, idx):
+        node_feature = torch.zeros((self.num_clips, self.num_sensor, self.graph_ch), dtype=torch.float)
+        edge = torch.zeros((self.num_clips, self.num_sensor, self.num_sensor), dtype=torch.float)
+
+        if self.dataset_name == 'reddit_data':
+            for d in range(self.num_clips):
+                node_path = self.dataset_name + '/node/node' + str(idx + d + 1) + '.npy'
+                edge_path = self.dataset_name + '/graph/graph' + str(idx + d + 1) + '.npy'
+                dict_path = self.dataset_name + '/dict/node_dict' + str(
+                    idx + d + 1) + '.npy' if self.dataset_name != 'DBLP5' else None
+                node_feature[d], edge[d], _, _ = load_graph(node_path, edge_path, dict_path)
+
+            help = torch.eye(edge.shape[1], dtype=torch.float)
+            node_exist = torch.sum(torch.mul(help, edge), dim=-1)  # whether or not the node exists
+            edge = torch.mul(1. - help, edge)
+
+            edge = edge.to(self.device)
+
+        elif 'har' in self.dataset_name:
+            if idx + self.num_clips - 1 <= self.subject_train[self.subject, 2]:
+                p = idx + self.num_clips
+            else:
+                self.subject += 1
+                idx = int(self.subject_train[self.subject, 1])
+                p = idx+ self.num_clips
+
+            node_feature = self.train_list[idx:p]
+            edge = None
+
+        node_feature = node_feature.to(self.device)
+
+        sensor = [i for i in range(self.num_sensor)]
+        sensor = torch.tensor(sensor, dtype=torch.int64)
+        sensor = sensor.to(self.device)
+
+        return node_feature, edge, sensor, idx
+
+    def load_data_test(self, idx):
+        node_feature = torch.zeros((self.num_clips, self.num_sensor_dev, self.graph_ch), dtype=torch.float)
+        edge = torch.zeros((self.num_clips, self.num_sensor_dev, self.num_sensor_dev), dtype=torch.float)
+        abnormal = torch.zeros((self.num_clips, self.num_sensor_dev), dtype=torch.float)
+        graph_abnormal = None
+
+        if self.dataset_name == 'reddit_data':
+            for d in range(self.num_clips):
+                node_path = self.dataset_name + '/node/testnode' + str(idx + d + 1) + '.npy'
+                edge_path = self.dataset_name + '/graph/testgraph' + str(idx + d + 1) + '.npy'
+                ab_path = self.dataset_name + '/abnormal/abnormal' + str(idx + d + 1) + '.npy'
+                node_feature[d], edge[d], _, abnormal[d] = load_graph(node_path, edge_path,
+                                                                      abnormal_path=ab_path)
+
+            help = torch.eye(edge.shape[1], dtype=torch.float)
+
+            node_exist = torch.sum(torch.mul(help, edge), dim=-1)[-1]  # whether or not the node exists
+            edge = torch.mul(1. - help, edge)
+
+            pad_dim = self.num_sensor - self.num_sensor_dev
+            node_feature = F.pad(node_feature, (0, 0, 0, pad_dim))
+            edge = F.pad(edge, (0, pad_dim, 0, pad_dim))
+            abnormal = F.pad(abnormal, (0, pad_dim))[-1]
+
+            edge = edge.to(self.device)
+
+        elif 'har' in self.dataset_name:
+            if idx+self.num_clips-1 <= self.subject_test[self.subject, 2]:
+                p = idx + self.num_clips
+            else:
+                self.subject += 1
+                idx = int(self.subject_test[self.subject, 1])
+                p = idx + self.num_clips
+
+            node_feature = self.test_list[idx:p]
+            abnormal = self.abnormal_list[p-1]
+            graph_abnormal = (self.test_label[p-1] == 3)
+            edge = None
+
+        node_feature = node_feature.to(self.device)
+
+        sensor = [i for i in range(self.num_sensor)]
+        sensor = torch.tensor(sensor, dtype=torch.int64).to(self.device)
+
+        return node_feature, edge, sensor, abnormal, graph_abnormal, idx
+
     def train(self):
         start_iters = self.resume_iters if not self.new_start else 0
         self.restore_model(self.resume_iters)
@@ -161,31 +269,13 @@ class DGAD(object):
                 lr = self.init_lr * (self.epoch - epoch) / (self.epoch - self.decay_epoch)  # linear decay
                 self.update_lr(lr)
 
-            for idx in range(start_batch_id, self.iteration):
+            self.subject = 0
+            idx = start_batch_id
+            while idx < self.iteration:
                 # =================================================================================== #
                 #                             1. Preprocess input data(Unfinisher)                    #
                 # =================================================================================== #
-                node_feature = torch.zeros((self.num_clips, self.num_sensor, self.graph_ch), dtype=torch.float)
-                edge = torch.zeros((self.num_clips, self.num_sensor, self.num_sensor), dtype=torch.float)
-
-                for d in range(self.num_clips):
-                    node_path = self.dataset_name + '/node/node' + str(idx + d + 1) + '.npy'
-                    edge_path = self.dataset_name + '/graph/graph' + str(idx + d + 1) + '.npy'
-                    dict_path = self.dataset_name + '/dict/node_dict' + str(
-                        idx + d + 1) + '.npy' if self.dataset_name != 'DBLP5' else None
-                    node_feature[d], edge[d], _, _ = load_graph(node_path, edge_path, dict_path)
-
-                help = torch.eye(edge.shape[1], dtype=torch.float)
-
-                node_exist = torch.sum(torch.mul(help, edge), dim=-1)  # whether or not the node exists
-                edge = torch.mul(1. - help, edge)
-
-                edge = edge.to(self.device)
-                node_feature = node_feature.to(self.device)
-
-                sensor = [i for i in range(self.num_sensor)]
-                sensor = torch.tensor(sensor, dtype=torch.int64)
-                sensor = sensor.to(self.device)
+                node_feature, edge, sensor, idx = self.load_data_train(idx)
 
                 loss = {}
 
@@ -242,6 +332,10 @@ class DGAD(object):
                 if (idx + 1) % self.save_freq == 0:
                     self.save(self.checkpoint_dir, start_iters)
 
+                idx += 1
+                if idx >= 2941:
+                    a= 0
+
             # After an epoch, start_batch_id is set to zero
             # non-zero value is only for the first epoch after loading pre-trained model
             start_batch_id = 0
@@ -262,44 +356,23 @@ class DGAD(object):
         self.iteration = self.test_len - self.num_clips + 1
         self.model_save_dir = os.path.join(self.checkpoint_dir, self.model_dir)
 
-        label = []
-        predict = []
+        node_predict = []
+        graph_predict = []
+
+        node_abnormal = []
+        graph_ab_list = []
 
         with torch.no_grad():
-            for idx in range(self.iteration):
+            idx = 0
+            self.subject = 0
+            while idx < self.iteration:
                 # =================================================================================== #
                 #                             1. Preprocess input data(Unfinished)                    #
                 # =================================================================================== #
-                node_feature = torch.zeros((self.num_clips, self.num_sensor_dev, self.graph_ch), dtype=torch.float)
-                edge = torch.zeros((self.num_clips, self.num_sensor_dev, self.num_sensor_dev), dtype=torch.float)
-                abnormal = torch.zeros((self.num_clips, self.num_sensor_dev), dtype=torch.float)
+                node_feature, edge, sensor, abnormal, graph_abnormal, idx = self.load_data_test(idx)
 
-                for d in range(self.num_clips):
-                    node_path = self.dataset_name + '/node/testnode' + str(idx + d + 1) + '.npy'
-                    edge_path = self.dataset_name + '/graph/testgraph' + str(idx + d + 1) + '.npy'
-                    ab_path = self.dataset_name + '/abnormal/abnormal' + str(idx + d + 1) + '.npy'
-                    node_feature[d], edge[d], _, abnormal[d] = load_graph(node_path, edge_path,
-                                                                          abnormal_path=ab_path)
-
-                help = torch.eye(edge.shape[1], dtype=torch.float)
-
-                node_exist = torch.sum(torch.mul(help, edge), dim=-1) [-1] # whether or not the node exists
-                edge = torch.mul(1. - help, edge)
-
-                pad_dim = self.num_sensor - self.num_sensor_dev
-                node_feature = F.pad(node_feature, (0,0,0,pad_dim))
-                edge = F.pad(edge, (0, pad_dim, 0, pad_dim))
-                abnormal = F.pad(abnormal, (0, pad_dim))
-
-                edge = edge.to(self.device)
-                node_feature = node_feature.to(self.device)
-                # abnormal = abnormal[-1].to(self.device)
-                label.append(abnormal[-1])
-
-                sensor = [i for i in range(self.num_sensor)]
-                sensor = torch.tensor(sensor, dtype=torch.int64).to(self.device)
-
-                loss = {}
+                node_abnormal.append(abnormal)
+                graph_ab_list.append(graph_abnormal.view(self.batch_size))
 
                 # =================================================================================== #
                 #                             2. Train the Model                                      #
@@ -314,103 +387,24 @@ class DGAD(object):
                 sensor_score = self.loss_function(node_recon, node_feature[-1], graph=False, device=self.device)
                 error = self.nx_w * patient_score + (1 - self.nx_w) * sensor_score
 
-                predict.append(error.cpu())
+                if graph_abnormal is None:
+                    node_predict.append(error.cpu())
+                else:
+                    node_predict.append(sensor_score.cpu())
+                    graph_predict.append(torch.mean(patient_score).cpu())
 
-                del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score
+                del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score, error
                 del node_feature, edge
                 torch.cuda.empty_cache()
 
+                idx += 1
+
         print("Finish NN Part!")
 
-        thers_l = torch.arange(0,2.51,0.01)
-        label = torch.cat(label)
-        label = torch.flatten(label)
-        predict = torch.flatten(torch.cat(predict))
-        recall_list = []
-        prec_list = []
-        f1_list = []
-        acc_list = []
-        best = [0,0,0,0,0]
-        for thers in thers_l:
-            # tp, tn, fp, fn = 0., 0., 0., 0.
-
-            record1 = (predict >= thers).float()
-
-            tp = (label * record1).sum().to(torch.float32)
-            tn = ((1 - label) * (1 - record1)).sum().to(torch.float32)
-            fp = ((1 - label) * record1).sum().to(torch.float32)
-            fn = (label * (1 - record1)).sum().to(torch.float32)
-
-            # for n in range(record1.shape[0]):
-            #     if record1[n] == label[n]:
-            #         if record1[n] == 0:
-            #             tp += 1.
-            #         else:
-            #             tn += 1.
-            #     else:
-            #         if record1[n] == 0:
-            #             fp += 1.
-            #         else:
-            #             fn += 1.
-
-            # anomaly_cpu = error.detach().cpu().numpy()
-            # anomaly_max = np.max(anomaly_cpu)
-            # max_indicate = np.where(anomaly_cpu == anomaly_max)
-            # print(max_indicate)
-            # if node_exist[max_indicate[0]]:
-            #     print('idx={}'.format(idx))
-            #     print(anomaly_max)
-            #     print(max_indicate)
-            #     print('\n')
-            # else:
-            #     print('Not exists')
-
-            epsilon = 1e-7
-
-            acc = (tp + tn) / (tp + tn + fp + fn)
-            recall = tp / (tp + fn + epsilon)
-            prec = tp / (tp + fp + epsilon)
-            f1 = 2 * (recall * prec) / (recall + prec)
-
-            acc_list.append(acc)
-            recall_list.append(recall)
-            prec_list.append(prec)
-            f1_list.append(f1)
-
-            if f1 > best[1]:
-                best = [thers,f1,acc,recall,prec]
-            elif f1==best[1] and acc > best[2]:
-                best = [thers, f1, acc, recall, prec]
-
-        print('Best result for now: thers={}, f1={}, acc={}, recall={}, prec={}'.format(best[0], best[1], best[2], best[3], best[4]))
-
-        # plt.figure(1)
-        # plt.plot(recall_list,prec_list)
-        # plt.title('roc')
-        # plt.xlabel('Recall')
-        # plt.ylabel('Prec')
-        #
-        # plt.figure(2)
-        # plt.plot(acc_list, thers_l)
-        # plt.xlabel('threshold')
-        # plt.ylabel('accuracy')
-        #
-        # plt.figure(3)
-        # plt.plot(f1_list, thers_l)
-        # plt.xlabel('threshold')
-        # plt.ylabel('f1')
-        #
-        # plt.show()
-        #
-        # with open('result.txt', 'w') as f:
-        #     for i in recall_list:
-        #         f.write("%s" % i)
-        #     f.write('\n')
-        #     for i in prec_list:
-        #         f.write("%s" % i)
-        #     f.write('\n')
-        #     for i in acc_list:
-        #         f.write("%s" % i)
-        #     f.write('\n')
-        #     for i in f1_list:
-        #         f.write("%s" % i)
+        node_abnormal = torch.cat(node_abnormal)
+        node_predict = torch.cat(node_predict)
+        predict_result(node_predict, node_abnormal, "sensor")
+        if graph_abnormal is not None:
+            graph_ab_list = torch.tensor(graph_ab_list)
+            graph_predict = torch.tensor(graph_predict)
+            predict_result(graph_predict, graph_ab_list, 'graph')

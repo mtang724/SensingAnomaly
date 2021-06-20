@@ -72,7 +72,6 @@ class GAD(object) :
         print("# epoch : ", self.epoch)
         #print("# iteration per epoch : ", self.iteration)
 
-
     def print_network(self, model, name):
         """Print out the network information."""
         num_params = 0
