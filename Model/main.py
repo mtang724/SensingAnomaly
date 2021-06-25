@@ -27,8 +27,8 @@ def parse_args():
     parser.add_argument('--resume_iters', type=int, default=0, help='resume training from this step')
     parser.add_argument('--dropout', type=float, default=0.0, help='Dropout rate')
 
-    parser.add_argument('--decay_flag', type=bool, default=False, help='The decay_flag')
-    parser.add_argument('--decay_epoch', type=int, default=6, help='decay epoch')
+    parser.add_argument('--decay_flag', type=bool, default=True, help='The decay_flag')
+    parser.add_argument('--decay_epoch', type=int, default=1, help='decay epoch')
 
     parser.add_argument('--epoch', type=int, default=5, help='The number of epochs to run')
     # parser.add_argument('--iteration', type=int, default=2000, help='The number of training iterations')##
@@ -42,7 +42,7 @@ def parse_args():
 
     parser.add_argument('--batch_size', type=int, default=1, help='The batch size')
     parser.add_argument('--print_freq', type=int, default=5, help='The number of image_print_freq')
-    parser.add_argument('--save_freq', type=int, default=100, help='The number of ckpt_save_freq')
+    parser.add_argument('--save_freq', type=int, default=2000, help='The number of ckpt_save_freq')
     parser.add_argument('--print_net', type=bool, default=False, help='print_net')
     parser.add_argument('--use_tensorboard', type=bool, default=False, help='use_tensorboard')
 
