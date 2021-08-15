@@ -15,7 +15,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd.gradcheck import zero_gradients
+# from torch.autograd.gradcheck import zero_gradients
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D

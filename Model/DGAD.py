@@ -44,6 +44,7 @@ class DGAD(object):
         self.dropout = args.dropout
 
         self.loss_function = eval(args.loss_function)
+        self.edge_corr = args.edge_corr
         self.rx_w = args.rx_w
         self.nx_w = args.nx_w
         self.decay_flag = args.decay_flag
@@ -191,7 +192,15 @@ class DGAD(object):
                 p = idx+ self.num_clips
 
             node_feature = self.train_list[idx:p]
-            edge = None
+
+            if self.edge_corr:
+                edge_list_path = self.dataset_name + '/edge.npy'
+                edge =  np.load(edge_list_path, allow_pickle=True)
+                edge = torch.tensor(edge, dtype=torch.float)
+                edge = edge.expand([node_feature.shape[0], -1, -1])
+                edge = edge.to(self.device)
+            else:
+                edge = None
 
         node_feature = node_feature.to(self.device)
 
@@ -238,7 +247,15 @@ class DGAD(object):
             node_feature = self.test_list[idx:p]
             abnormal = self.abnormal_list[p-1]
             graph_abnormal = (self.test_label[p-1] == 3)
-            edge = None
+
+            if self.edge_corr:
+                edge_list_path = self.dataset_name + '/edge.npy'
+                edge =  np.load(edge_list_path, allow_pickle=True)
+                edge = torch.tensor(edge, dtype=torch.float)
+                edge = edge.expand([node_feature.shape[0], -1, -1])
+                edge = edge.to(self.device)
+            else:
+                edge = None
 
         node_feature = node_feature.to(self.device)
 
@@ -271,6 +288,12 @@ class DGAD(object):
 
             self.subject = 0
             idx = start_batch_id
+
+            # Shuffle the input
+            # ideax = torch.randperm(self.subject_train.shape[0] - 1) + 1
+            # ideax = torch.cat([torch.tensor([0]), ideax])
+            # self.subject_train = self.subject_train[ideax]
+
             while idx < self.iteration:
                 # =================================================================================== #
                 #                             1. Preprocess input data(Unfinisher)                    #
@@ -284,14 +307,14 @@ class DGAD(object):
                 # =================================================================================== #
                 #                             2. Train the Model                                      #
                 # =================================================================================== #
-                recon, forecast, node_recon = self.G(node_feature, edge, sensor)
+                recon, forecast, node_recon, _ = self.G(node_feature, edge, sensor)
 
-                self.recon_error = self.loss_function(recon, node_feature[-1], device=self.device)
-                self.forecast_error = self.loss_function(forecast, node_feature[-1], device=self.device)
+                self.recon_error = self.loss_function(recon, node_feature[-1], device=self.device) #* 10
+                self.forecast_error = self.loss_function(forecast, node_feature[-1], device=self.device) #* 10
 
                 self.Graph_error = (self.rx_w * self.recon_error
                                     + (1 - self.rx_w) * self.forecast_error)
-                self.Node_error = self.loss_function(node_recon, node_feature[-1], device=self.device)
+                self.Node_error = self.loss_function(node_recon, node_feature[-1], device=self.device) #* 10
 
                 self.Error = (self.nx_w * self.Node_error
                               + (1 - self.nx_w) * self.Graph_error)
@@ -308,7 +331,7 @@ class DGAD(object):
 
                 self.reset_grad()
                 self.Error.backward()
-                clip_grad_norm(self.G.parameters(), 1)
+                clip_grad_norm(self.G.parameters(), 10)
                 self.g_optimizer.step()
 
                 # =================================================================================== #
@@ -362,6 +385,9 @@ class DGAD(object):
         node_abnormal = []
         graph_ab_list = []
 
+        ps = []
+        embedding = []
+
         with torch.no_grad():
             idx = 0
             self.subject = 0
@@ -377,7 +403,7 @@ class DGAD(object):
                 # =================================================================================== #
                 #                             2. Train the Model                                      #
                 # =================================================================================== #
-                recon, forecast, node_recon = self.G(node_feature, edge, sensor)
+                recon, forecast, node_recon, E = self.G(node_feature, edge, sensor)
 
                 recon_error = self.loss_function(recon, node_feature[-1], graph=False, device=self.device)
                 forecast_error = self.loss_function(forecast, node_feature[-1], graph=False, device=self.device)
@@ -393,7 +419,10 @@ class DGAD(object):
                     node_predict.append(sensor_score.cpu())
                     graph_predict.append(torch.mean(patient_score).cpu())
 
-                del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score, error
+                    ps.append(patient_score.cpu())
+                    embedding.append(E[-1].cpu())
+
+                del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score, error, E
                 del node_feature, edge
                 torch.cuda.empty_cache()
 
@@ -407,4 +436,94 @@ class DGAD(object):
         if graph_abnormal is not None:
             graph_ab_list = torch.tensor(graph_ab_list)
             graph_predict = torch.tensor(graph_predict)
+            predict_result(graph_predict, graph_ab_list, 'graph')
+
+        ps = torch.cat(ps)
+        np.save('ps.npy', ps)
+        np.save('node_predict.npy', node_predict)
+        embedding = torch.cat(embedding)
+        np.save('embedding.npy', embedding)
+
+    def test_other(self, method='kernel'):
+        import skfda
+        import skfda.preprocessing.smoothing.kernel_smoothers as ks
+        import skfda.preprocessing.smoothing.validation as val
+
+        self.restore_model(self.resume_iters)
+
+        self.G.eval()
+        self.set_requires_grad(self.G, False)
+
+        self.iteration = self.test_len - self.num_clips + 1
+        self.model_save_dir = os.path.join(self.checkpoint_dir, self.model_dir)
+
+        graph_embedding = []
+
+        node_abnormal = []
+        graph_ab_list = []
+
+        with torch.no_grad():
+            idx = 0
+            self.subject = 0
+            while idx < self.iteration:
+                # =================================================================================== #
+                #                             1. Preprocess input data(Unfinished)                    #
+                # =================================================================================== #
+                node_feature, edge, sensor, abnormal, graph_abnormal, idx = self.load_data_test(idx)
+
+                node_abnormal.append(abnormal)
+                graph_ab_list.append(graph_abnormal.view(self.batch_size))
+
+                # =================================================================================== #
+                #                             2. Train the Model                                      #
+                # =================================================================================== #
+                _, _, _, E = self.G(node_feature, edge, sensor)
+
+                # if idx == 0:
+                #     graph_embedding.append(E)
+                # else:
+                graph_embedding.append(torch.unsqueeze(E[-1],0))
+
+                del E
+                del node_feature, edge
+                torch.cuda.empty_cache()
+
+                idx += 1
+
+        print("Finish NN Part!")
+
+        graph_embedding = torch.cat(graph_embedding)
+        graph_embedding = graph_embedding.view(graph_embedding.shape[0],-1).cpu()
+        residual = []
+
+        for idx in range(len(self.subject_test)):
+            start = int(self.subject_test[idx, 1])-idx*(self.num_clips-1)
+            end = int(self.subject_test[idx, 2])-(idx+1)*(self.num_clips-1)
+
+            if method == 'kernel':
+                fd = skfda.representation.grid.FDataGrid(graph_embedding[start:end + 1])
+                n_neighbors = np.arange(1, 24)
+                scale_factor = (
+                        (fd.domain_range[0][1] - fd.domain_range[0][0])
+                        / len(fd.grid_points[0])
+                )
+                bandwidth = n_neighbors * scale_factor
+
+                nw = val.SmoothingParameterSearch(
+                    ks.NadarayaWatsonSmoother(),
+                    bandwidth)
+                nw.fit(fd)
+                nw_fd = nw.transform(fd)
+                r = self.loss_function(torch.tensor(nw_fd.data_matrix), torch.tensor(fd.data_matrix), graph=False, device=self.device)
+                residual.append(r)
+
+        residual = torch.cat(residual).view(graph_embedding.shape[0], self.num_sensor_dev, -1)
+        residual = torch.mean(residual, dim=-1)
+        node_abnormal = torch.cat(node_abnormal)
+        print(residual.shape)
+        print(node_abnormal.shape)
+        predict_result(residual, node_abnormal, "sensor")
+        if graph_abnormal is not None:
+            graph_predict = torch.mean(residual, dim=-1)
+            graph_ab_list = torch.tensor(graph_ab_list)
             predict_result(graph_predict, graph_ab_list, 'graph')

@@ -1,4 +1,5 @@
 from DGAD import DGAD
+from DGAD_rnn import DGAD_rnn
 from LOF import LOF
 from GAE import GAD
 import argparse
@@ -17,9 +18,9 @@ Data_dict = {'sensor': [],
 def parse_args():
     desc = "Pytorch implementation of 3dgraphconv"
     parser = argparse.ArgumentParser(description=desc)
-    parser.add_argument('--phase', type=str, default='train', help='train or test')
+    parser.add_argument('--phase', type=str, default='train', help='train or test or smooth_test')
     parser.add_argument('--dataset', type=str, default='har_clean', help='dataset_name: reddit_data/har/har_clean')
-    parser.add_argument('--model', type=str, default='CNN', help='CNN/LOF/GAE')
+    parser.add_argument('--model', type=str, default='CNN', help='CNN/LOF/GAE/RNN')
     parser.add_argument('--dataset_setting', type=dict, default=Data_dict,
                         help='0 train_len, 1 test_len, 2 number of trn node, 3 number of dev node,' +
                              '4 sensor embedding dim, 5 input channel, 6 conv_channel, 7 Original dim')
@@ -39,6 +40,8 @@ def parse_args():
     parser.add_argument('--rx_w', type=float, default=0.5, help='weight of Graph reconstruction error')
     parser.add_argument('--nx_w', type=float, default=0.5, help='weight of masked nodes reconstruction error')
     parser.add_argument('--loss_function', type=str, default='l2_loss', help='loss function type [l1_loss / l2_loss/ cross_entropy]')
+    parser.add_argument('--edge_corr', type=bool, default=False,
+                        help='If False, learning an embedding; otherwise, claculate average RV correlation as edge.')
 
     parser.add_argument('--batch_size', type=int, default=1, help='The batch size')
     parser.add_argument('--print_freq', type=int, default=5, help='The number of image_print_freq')
@@ -48,7 +51,7 @@ def parse_args():
 
     parser.add_argument('--num_clips', type=int, default=3, help='The size of clip')
     parser.add_argument('--conv_ch', type=int, default=0, help='The base channel number per layer')
-    parser.add_argument('--head', type=int, default=1, help='Number of head for attention')
+    parser.add_argument('--head', type=int, default=4, help='Number of head for attention')
 
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoint',
                         help='Directory name to save the checkpoints')
@@ -94,6 +97,9 @@ def main(**setting):
     if args.model == 'CNN':
         gae = DGAD(args)
         print('Model: {}'.format(args.model))
+    elif args.model == 'RNN':
+        gae = DGAD_rnn(args)
+        print('Model: {}'.format(args.model))
     elif args.model == 'LOF':
         gae = LOF(args)
     elif args.model == 'GAE':
@@ -111,6 +117,10 @@ def main(**setting):
 
     if args.phase == 'test':
         gae.test()
+        print(" [*] Test finished!")
+
+    if args.phase == 'smooth_test':
+        gae.test_other()
         print(" [*] Test finished!")
 
 

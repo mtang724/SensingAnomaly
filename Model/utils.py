@@ -17,6 +17,20 @@ def check_folder(log_dir):
         os.makedirs(log_dir)
     return log_dir
 
+
+def rv_preprocessing(m):
+    m1 = torch.matmul(m,m.T)
+    return torch.flatten(m1 - torch.eye(m1.shape[0]) * m1)
+
+
+def modified_rv(x,y):
+    x = rv_preprocessing(x)
+    y = rv_preprocessing(y)
+
+    rv = torch.matmul(x,y) / torch.sqrt(torch.matmul(x,x) * torch.matmul(y,y))
+
+    return rv
+
 ##################################################################################
 # Loss function
 ##################################################################################
@@ -112,7 +126,7 @@ def predict_result(predict, abnormal, level):
         elif f1 == best[1] and acc > best[2]:
             best = [thers, f1, acc, recall, prec]
 
-    print('Best result of' + level + 'for now: thers={}, f1={}, acc={}, recall={}, prec={}'.format(best[0], best[1],
+    print('Best result of ' + level + ' for now: thers={}, f1={}, acc={}, recall={}, prec={}'.format(best[0], best[1],
                                                                                                    best[2], best[3],
                                                                                                    best[4]))
 
@@ -146,3 +160,4 @@ def predict_result(predict, abnormal, level):
     #     f.write('\n')
     #     for i in f1_list:
     #         f.write("%s" % i)
+

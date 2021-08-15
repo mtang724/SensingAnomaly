@@ -6,6 +6,7 @@ import torch
 import random
 from utils import *
 
+
 def csv_read(path):
     data = []
     with open(path,'r',encoding='utf-8') as f:
@@ -136,6 +137,53 @@ def load_har(train_list_path, train_label_path, test_list_path, test_label_path,
     abnormal_list = torch.tensor(abnormal_list, dtype=torch.float)
 
     return train_list, train_label, test_list, test_label, subject_train, subject_test, abnormal_list
+
+
+def har_correlation():
+    dataset_name = 'har_clean'
+    if 'har' in dataset_name:
+        if 'clean' in dataset_name:
+            train_list_path = dataset_name + '/train_clean_list.npy'
+            train_label_path = dataset_name + '/train_clean_label.npy'
+        else:
+            train_list_path = dataset_name + '/train_list.npy'
+            train_label_path = dataset_name + '/train_label.npy'
+        test_list_path = dataset_name + '/test_list.npy'
+        test_label_path = dataset_name + '/test_label.npy'
+        subject_train_path = dataset_name + '/subject_train.npy'
+        subject_test_path = dataset_name + '/subject_test.npy'
+        abnormal_list_path = dataset_name + '/ab.npy'
+
+        dataset = load_har(train_list_path, train_label_path, test_list_path, test_label_path, subject_train_path,
+                           subject_test_path, abnormal_list_path)
+
+        train_list = dataset[0]
+        subject_train = dataset[4]
+        del dataset
+
+        num_node = 18
+        idx = 0
+        edge = torch.eye(num_node) * len(subject_train)
+
+        while idx < len(subject_train):
+            start = int(subject_train[idx, 1])
+            end = int(subject_train[idx, 2])
+
+            node_feature = train_list[start:end + 1].permute([1,0,2])
+
+            for i in range(num_node):
+                for j in range(i+1, num_node):
+                    rv = modified_rv(node_feature[i], node_feature[j])
+                    edge[i,j] += rv
+                    edge[j,i] += rv
+
+            idx += 1
+
+        edge /= len(subject_train)
+
+        np.save('har_clean/edge.npy', edge.numpy())
+
+        return edge
 
 
 def structure_abnormal(edge, number=500, time=20):
@@ -351,6 +399,14 @@ def HAR_preprocess(path):
 
     f = open(path + "/train/X_train.txt")
     g = open(path + "/train/y_train.txt")
+    h = open(path + "/train/subject_train.txt")
+
+    subline = h.readline()
+    store_name = subline.strip()
+    start = 0
+    num_line = 0
+    subject_train = []
+
 
     line = f.readline()
     l_feature = list(map(float,line.strip().split()))
@@ -365,6 +421,17 @@ def HAR_preprocess(path):
 
     while line:
         line = f.readline()
+
+        subline = h.readline()
+        if subline:
+            current_name = subline.strip()
+        else:
+            current_name = ''
+        if current_name != store_name:
+            subject_train.append([int(store_name), start, num_line, num_line - start + 1])
+            start = num_line + 1
+            store_name = current_name
+
         if line:
             l_feature = list(map(float, line.strip().split()))
             np_feature = list2np(result, l_feature, num_node, num_feature)
@@ -372,13 +439,19 @@ def HAR_preprocess(path):
 
             yline = int(g.readline().strip())
             train_label.append(yline)
+
             if yline != 3:
                 train_clean_list.append(np_feature)
                 train_clean_label.append(yline)
+
+                num_line += 1
+
     f.close()
     g.close()
+    h.close()
     print(len(train_list), len(train_label))
     print(len(train_clean_list), len(train_clean_label))
+    print(subject_train)
 
     # test_list
     test_list = []
@@ -407,27 +480,6 @@ def HAR_preprocess(path):
     f.close()
     g.close()
     print(len(test_list), len(test_label))
-
-    # subject_train
-    f = open(path + "/train/subject_train.txt")
-    line = f.readline()
-    store_name = line.strip()
-    start = 0
-    num_line = 0
-    subject_train = []
-    while line:
-        line = f.readline()
-        if line:
-            current_name = line.strip()
-        else:
-            current_name = ''
-        if current_name != store_name:
-            subject_train.append([int(store_name), start, num_line, num_line-start+1])
-            start = num_line + 1
-            store_name = current_name
-        num_line += 1
-    f.close()
-    print(subject_train)
 
     # subject_test
     g = open(path + "/test/subject_test.txt")
@@ -484,6 +536,7 @@ def HAR_preprocess(path):
 
     return train_list, train_clean_list, train_label, train_clean_label, test_list, test_label, subject_train, subject_test, abnormal_list, ab
 
+
 def sensor_abnormal(node, number=1, time=60):
     times = np.random.randint(0, node.shape[0], size=time)
     abnormal_list = []
@@ -497,8 +550,8 @@ def sensor_abnormal(node, number=1, time=60):
     return node, abnormal_list
 
 if __name__ == '__main__':
-    train_list, train_clean_list, train_label, train_clean_label, test_list, test_label, subject_train, subject_test, abnormal_list = HAR_preprocess(
-        path='C:/Users/yinan/Desktop/UCI HAR Dataset')
+    # train_list, train_clean_list, train_label, train_clean_label, test_list, test_label, subject_train, subject_test, abnormal_list, ab = HAR_preprocess(
+    #     path='C:/Users/yinan/Desktop/UCI HAR Dataset')
 
     # dataset_name = 'DBLP5'
     # test_len = 4
@@ -506,4 +559,5 @@ if __name__ == '__main__':
     # channal = 100
     # graph_size = 6606
     # generate_test_data2(dataset_name, test_len, graph_size, channal, train_len)
-    
+
+    x = har_correlation()
