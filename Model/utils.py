@@ -4,6 +4,7 @@ from scipy import misc
 import os, random
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 DEVICE = torch.device('cpu')#'cuda' if torch.cuda.is_available() else
 
@@ -47,7 +48,7 @@ def l1_loss(x, y, graph=True, device=DEVICE):
 
 def l2_loss(x, y, graph=True, c=0, device=DEVICE):
     if graph:
-        a = torch.mean(torch.pow(x-y, 2))
+        # a = torch.mean(torch.pow(x-y, 2))
         loss = torch.clamp(torch.mean(torch.pow(x-y, 2)) - c, min=0., max=100)
     else:
         loss = torch.clamp(torch.mean(torch.pow(x-y, 2), dim=-1) - c, min=0., max=100)

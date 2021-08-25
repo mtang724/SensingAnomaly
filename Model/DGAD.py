@@ -414,13 +414,13 @@ class DGAD(object):
                 error = self.nx_w * patient_score + (1 - self.nx_w) * sensor_score
 
                 if graph_abnormal is None:
-                    node_predict.append(error.cpu())
+                    node_predict.append(error.cpu().detach())
                 else:
-                    node_predict.append(sensor_score.cpu())
-                    graph_predict.append(torch.mean(patient_score).cpu())
+                    node_predict.append(sensor_score.cpu().detach())
+                    graph_predict.append(torch.mean(patient_score).cpu().detach())
 
-                    ps.append(patient_score.cpu())
-                    embedding.append(E[-1].cpu())
+                    ps.append(patient_score.cpu().detach())
+                    embedding.append(E[-1].cpu().detach())
 
                 del recon, forecast, node_recon, recon_error, forecast_error, patient_score, sensor_score, error, E
                 del node_feature, edge

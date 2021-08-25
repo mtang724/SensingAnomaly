@@ -106,6 +106,8 @@ def main(**setting):
         gae = GAD(args)
         print('Model: {}'.format(args.model))
 
+    torch.backends.cudnn.benchmark = True
+
     if args.phase == 'train':
         if args.model != 'LOF':
             # launch the graph in a session

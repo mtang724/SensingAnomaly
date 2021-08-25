@@ -47,7 +47,7 @@ class GAE(nn.Module):
 # Model (CNN Version)
 ##################################################################################
 class GraphDetector(nn.Module):
-    def __init__(self, in_channels, conv_ch, dropout, original_dim, num_head, st_module=d3GraphConv4):
+    def __init__(self, in_channels, conv_ch, dropout, original_dim, num_head, st_module=d3GraphConv2):
         super(GraphDetector, self).__init__()
         self.dropout = dropout
         self.conv_ch = conv_ch
@@ -91,7 +91,7 @@ class GraphDetector(nn.Module):
         edge_index = torch.nonzero(edge[-1]).T
         recon = F.elu(self.reconstruct11(E[-1], edge_index))
         recon = torch.cat((self.reconstruct12(recon, edge_index), recon),-1)
-        recon = F.dropout(F.elu(recon), self.dropout)
+        recon = F.dropout(F.elu(recon), self.dropout, training=self.training)
         recon = F.elu(self.reconstruct2(recon, edge_index))
         recon = torch.tanh(self.reconstruct3(recon.T.unsqueeze(0))).squeeze().T
         recon = self.reconstruct4(recon)
@@ -99,7 +99,7 @@ class GraphDetector(nn.Module):
         edge_index = torch.nonzero(edge[-2]).T
         forecast = F.elu(self.forecast11(E[-2], edge_index))
         forecast = torch.cat((self.reconstruct12(forecast, edge_index), forecast), -1)
-        forecast = F.dropout(F.elu(forecast), self.dropout)
+        forecast = F.dropout(F.elu(forecast), self.dropout, training=self.training)
         forecast = F.elu(self.forecast2(forecast, edge_index))
         forecast = torch.tanh(self.forecast3(forecast.T.unsqueeze(0))).squeeze().T
         forecast = self.forecast4(forecast)
@@ -167,7 +167,7 @@ class NodeDetector(nn.Module):
             # Aggregation of each node feature and corresponding embeding.
             masked = torch.stack([E, masked]).permute([1,2,0])  # N x C x 2
             masked = self.node_aggr1(masked).squeeze() # N x C
-            masked = F.dropout(torch.tanh(masked), self.dropout)
+            masked = F.dropout(torch.tanh(masked), self.dropout, training=self.training)
             masked = self.node_aggr2(masked)  # N x C//2
 
             # Project mask node and other nodes to same place
@@ -176,9 +176,9 @@ class NodeDetector(nn.Module):
 
             # Graph aggregation
             projected_masked = self.graph_conv1(projected_masked, edge_index)
-            projected_masked = F.dropout(F.elu(projected_masked), self.dropout)
+            projected_masked = F.dropout(F.elu(projected_masked), self.dropout, training=self.training)
             projected_masked = self.graph_conv2(projected_masked, edge_index)
-            projected_masked = F.dropout(F.elu(projected_masked), self.dropout)  # N x C//2
+            projected_masked = F.dropout(F.elu(projected_masked), self.dropout, training=self.training)  # N x C//2
 
             # Reconstruction
             recon[i] = self.reconstruct(projected_masked[i].view([1,-1])).squeeze()
@@ -282,13 +282,13 @@ class GraphDetector_rnn(nn.Module):
             edge_index = torch.nonzero(edge[i]).T
             out[i] = self.graph_conv1(x[i], edge_index)
 
-        out = F.dropout(F.elu(out),self.dropout)
+        out = F.dropout(F.elu(out),self.dropout, training=self.training)
 
         out2 = torch.zeros((x.shape[0], x.shape[1], self.conv_ch//2), dtype=torch.float).to(x.device)
         for i in range(out.shape[0]):
             edge_index = torch.nonzero(edge[i]).T
             out2[i] = self.graph_conv2(out[i], edge_index)
-        E = F.dropout(F.elu(out2),self.dropout)  # T x N x C//2
+        E = F.dropout(F.elu(out2),self.dropout, training=self.training)  # T x N x C//2
 
         h0 = torch.zeros(2, x.shape[1], self.conv_ch//2, dtype=torch.float).to(x.device)
         E, _ = self.rnn1(E, h0)
@@ -299,14 +299,14 @@ class GraphDetector_rnn(nn.Module):
             if i != 0:
                 edge_index = torch.nonzero(edge[i]).T
                 recon = F.elu(self.reconstruct1(E[i], edge_index))
-                recon = F.dropout(recon, self.dropout)
+                recon = F.dropout(recon, self.dropout, training=self.training)
                 recon = torch.tanh(self.reconstruct2(recon)) # F.elu(self.reconstruct2(recon))
                 recon_matrix[i-1] = self.reconstruct3(recon)
 
             if i != E.shape[0]-1:
                 edge_index = torch.nonzero(edge[i]).T
                 forecast = F.elu(self.forecast1(E[i], edge_index))
-                forecast = F.dropout(forecast, self.dropout)
+                forecast = F.dropout(forecast, self.dropout, training=self.training)
                 forecast = torch.tanh(self.reconstruct2(forecast)) # F.elu(self.forecast2(forecast))
                 forecast_matrix[i] = self.forecast3(forecast)
 
@@ -374,7 +374,7 @@ class NodeDetector_rnn(nn.Module):
                 # Aggregation of each node feature and corresponding embeding.
                 masked = torch.stack([E[i-1], masked]).permute([1,2,0])  # N x C x 2
                 masked = self.node_aggr1(masked).squeeze() # N x C
-                masked = F.dropout(torch.tanh(masked), self.dropout)
+                masked = F.dropout(torch.tanh(masked), self.dropout, training=self.training)
                 masked = self.node_aggr2(masked)  # N x C//2
 
                 # Project mask node and other nodes to same place
@@ -383,9 +383,9 @@ class NodeDetector_rnn(nn.Module):
 
                 # Graph aggregation
                 projected_masked = self.graph_conv1(projected_masked, edge_index)
-                projected_masked = F.dropout(F.elu(projected_masked), self.dropout)
+                projected_masked = F.dropout(F.elu(projected_masked), self.dropout, training=self.training)
                 projected_masked = self.graph_conv2(projected_masked, edge_index)
-                projected_masked = F.dropout(F.elu(projected_masked), self.dropout) # N x C//2
+                projected_masked = F.dropout(F.elu(projected_masked), self.dropout, training=self.training) # N x C//2
 
                 # Reconstruction
                 recon[i-1,j] = self.reconstruct(projected_masked[j].view([1,-1])).squeeze()
