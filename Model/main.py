@@ -12,14 +12,15 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 Data_dict = {'sensor': [],
              'reddit_data': [150, 50, 3199, 2411, 16, 300, 64, 300],
              'har': [7352, 2947, 18, 18, 16, 79, 64, 79],
-             'har_clean': [6366, 2947, 18, 18, 16, 79, 64, 79]}  # TODO: Modify
+             'har_clean': [6366, 2947, 18, 18, 16, 79, 64, 79],
+             'nnn': [95, 80, 10, 10, 10, 10, 64, 10]}  # TODO: Modify
 
 """parsing and configuration"""
 def parse_args():
     desc = "Pytorch implementation of 3dgraphconv"
     parser = argparse.ArgumentParser(description=desc)
     parser.add_argument('--phase', type=str, default='train', help='train or test or smooth_test')
-    parser.add_argument('--dataset', type=str, default='har_clean', help='dataset_name: reddit_data/har/har_clean')
+    parser.add_argument('--dataset', type=str, default='nnn', help='dataset_name: reddit_data/har/har_clean')
     parser.add_argument('--model', type=str, default='CNN', help='CNN/LOF/GAE/RNN')
     parser.add_argument('--dataset_setting', type=dict, default=Data_dict,
                         help='0 train_len, 1 test_len, 2 number of trn node, 3 number of dev node,' +

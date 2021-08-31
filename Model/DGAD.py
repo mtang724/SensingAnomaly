@@ -21,6 +21,7 @@ from torch.nn.utils import clip_grad_norm_ as clip_grad_norm
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from load_data.convert_graph_feature import read_graph_data
 
 
 class DGAD(object):
@@ -89,8 +90,11 @@ class DGAD(object):
             self.subject_train = dataset[4]
             self.subject_test  = dataset[5]
             self.abnormal_list = dataset[6]
+            # print(self.abnormal_list.shape)
 
             del dataset
+        else:
+            self.train_list, self.train_label, self.test_list, self.test_label, self.subject_train, self.subject_test, self.abnormal_list = read_graph_data()
 
         # build graph
         print(" [*] Buliding model!")
