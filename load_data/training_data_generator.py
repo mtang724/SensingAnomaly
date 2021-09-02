@@ -29,61 +29,64 @@ y_list_w = []
 y_list_h = []
 for device_id in device_ids:
     print(device_id)
-    date_ranges_w, date_ranges_h,  yws, yhs = utils.generate_date_and_y(email_path, device_id)
-    for date_range, yw in zip(date_ranges_w, yws):
-        df_list = []
-        for df in ori_df_list:
-            print(date_range[0], date_range[1])
-            filter_df = utils.filter_date(df, device_id, date_range[0], date_range[1]).drop(columns=['T', 'ParticipantId', 'FileCreationTime', 'DeviceId'])
-            print(filter_df.head())
-            df_list.append(filter_df)
+    try:
+        date_ranges_w, date_ranges_h,  yws, yhs = utils.generate_date_and_y(email_path, device_id)
+        for date_range, yw in zip(date_ranges_w, yws):
+            df_list = []
+            for df in ori_df_list:
+                print(date_range[0], date_range[1])
+                filter_df = utils.filter_date(df, device_id, date_range[0], date_range[1]).drop(columns=['T', 'ParticipantId', 'FileCreationTime', 'DeviceId'])
+                print(filter_df.head())
+                df_list.append(filter_df)
 
-        X_train_list = []
-        col_list = []
-        pre_X_train = None
-        for i in range(len(df_list)):
-            df = df_list[i]
-            try:
-                cfg = tsfel.get_features_by_domain()
-                X_train = tsfel.time_series_features_extractor(cfg, df)
-                X_train_list.append(X_train)
-                col_names = X_train.columns
-                col_list.append(col_names)
-                pre_X_train = X_train
-            except:
-                X_train_list.append(pre_X_train)
-                continue
-        if len(col_list) != 0:
-            prev_list = col_list[0]
-            for col in col_list[1:]:
+            X_train_list = []
+            col_list = []
+            pre_X_train = None
+            for i in range(len(df_list)):
+                df = df_list[i]
+                try:
+                    cfg = tsfel.get_features_by_domain()
+                    X_train = tsfel.time_series_features_extractor(cfg, df)
+                    X_train_list.append(X_train)
+                    col_names = X_train.columns
+                    col_list.append(col_names)
+                    pre_X_train = X_train
+                except:
+                    X_train_list.append(pre_X_train)
+                    continue
+            if len(col_list) != 0:
+                prev_list = col_list[0]
+                for col in col_list[1:]:
+                    prev_list = set(prev_list).intersection(col)
+
+                extracted_X_train = []
+                for X_train in X_train_list:
+                    new_train = X_train[prev_list]
+                    extracted_X_train.append(new_train)
+
+                X_df = pd.concat(extracted_X_train, axis=0)
+                print(X_df.values)
+                X_df_list.append(X_df)
+                y_list_w.append(yw)
+                # y_list_h.append(yh)
+
+        df_column_list = []
+        for df in X_df_list:
+            col_names = df.columns
+            df_column_list.append(col_names)
+
+        if len(df_column_list) != 0:
+            prev_list = df_column_list[0]
+            for col in df_column_list[1:]:
                 prev_list = set(prev_list).intersection(col)
 
-            extracted_X_train = []
-            for X_train in X_train_list:
+        X_list = []
+        try:
+            for X_train in X_df_list:
                 new_train = X_train[prev_list]
-                extracted_X_train.append(new_train)
-
-            X_df = pd.concat(extracted_X_train, axis=0)
-            print(X_df.values)
-            X_df_list.append(X_df)
-            y_list_w.append(yw)
-            # y_list_h.append(yh)
-
-    df_column_list = []
-    for df in X_df_list:
-        col_names = df.columns
-        df_column_list.append(col_names)
-
-    if len(df_column_list) != 0:
-        prev_list = df_column_list[0]
-        for col in df_column_list[1:]:
-            prev_list = set(prev_list).intersection(col)
-
-    X_list = []
-    try:
-        for X_train in X_df_list:
-            new_train = X_train[prev_list]
-            X_list.append(new_train.values)
+                X_list.append(new_train.values)
+        except:
+            continue
     except:
         continue
 
